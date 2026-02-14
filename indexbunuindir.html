@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Xədicə ❤️</title>
+  <style>
+    html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+
+    #logo{
+      position:fixed;
+      left:50%;
+      top:46%;
+      transform:translate(-50%,-50%);
+      z-index:2;
+      pointer-events:none;
+      user-select:none;
+      -webkit-user-drag:none;
+      filter: drop-shadow(0 12px 24px rgba(0,0,0,.55));
+      will-change: transform, filter;
+    }
+
+    #logo.pulse{ animation:pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse{
+      0%,100%{ transform:translate(-50%,-50%) scale(1); filter: drop-shadow(0 12px 24px rgba(0,0,0,.55)); }
+      50%{ transform:translate(-50%,-50%) scale(1.03); filter: drop-shadow(0 16px 34px rgba(255,40,120,.18)); }
+    }
+
+    #start{
+      position:fixed; inset:0; z-index:10;
+      display:flex; align-items:center; justify-content:center; flex-direction:column;
+      background:rgba(0,0,0,.85);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      gap:14px;
+    }
+    #start .btn{
+      cursor:pointer; border:0; border-radius:999px;
+      padding:14px 18px; font-weight:800; letter-spacing:.2px;
+      background:rgba(255,255,255,.12); color:#fff;
+      box-shadow:0 12px 40px rgba(0,0,0,.55);
+    }
+    #start .btn:active{transform:translateY(1px)}
+    #start .hint{color:rgba(255,255,255,.75);font-size:12px;user-select:none}
+
+    .hud{display:none !important;}
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <img id="logo" src="https://raw.githubusercontent.com/poyrazefeozdemir/indexmusic/main/sonlogo.png" alt="logo">
+
+  <div id="start">
+    <button class="btn" id="startBtn">❤️ Bana dokun ❤️</button>
+    <div class="hint">dokununca müzik başlar</div>
+  </div>
+
+  <audio id="a" preload="auto" loop playsinline>
+    <source src="https://raw.githubusercontent.com/poyrazefeozdemir/indexmusic/main/Edepsiz-Komedya.mp3" type="audio/mpeg">
+  </audio>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha: true });
+
+  const logo = document.getElementById("logo");
+  const start = document.getElementById("start");
+  const startBtn = document.getElementById("startBtn");
+  const audio = document.getElementById("a");
+
+  // 1. yazı (2 satır)
+  const TEXT1 = ["Bu evrendeki, en", "doğru denklemsin."];
+  // 2. yazı (2 satır)
+  const TEXT2 = ["Sevgililer günün", "Kutlu olsun güzelim ❤️"];
+
+  const DPR = () => Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const isMobile = () => matchMedia("(pointer:coarse)").matches;
+
+  let W=0,H=0,dpr=1;
+  let center = {x:0,y:0,r:0};
+  let started = false;
+
+  const hearts = [];
+  const dust = [];
+
+  let textTargets = [];
+  let textParticles = [];
+  let textBuilt = false;
+
+  // aşama kontrolü
+  let stage = 1;                 // 1 => TEXT1, 2 => TEXT2
+  let textSettled = false;
+  let settledAt = 0;
+
+  // 5 sn bekleme
+  const MORPH_DELAY_MS = 5000;
+  let morphed = false;
+
+  function resize(){
+    dpr = DPR();
+    W = Math.floor(innerWidth * dpr);
+    H = Math.floor(innerHeight * dpr);
+    canvas.width = W; canvas.height = H;
+
+    const minSide = Math.min(W,H);
+    center.x = W/2;
+    center.y = H*0.46;
+    center.r = minSide * 0.28;
+
+    scaleLogo();
+
+    // ✅ Stage 1'de resize olunca MORPH YAPMA (bozulmayı keser)
+    if(started) buildTextTargets(stage === 1 ? TEXT1 : TEXT2, stage === 2);
+  }
+
+  function scaleLogo(){
+    const widthCSS = innerWidth * (isMobile() ? 0.82 : 0.56);
+    logo.style.width = Math.round(widthCSS) + "px";
+    logo.style.height = "auto";
+    logo.style.left = "50%";
+    logo.style.top  = "46%";
+  }
+
+  function logoRectCanvas(){
+    const r = logo.getBoundingClientRect();
+    return { x: r.left*dpr, y: r.top*dpr, w: r.width*dpr, h: r.height*dpr, bottom: r.bottom*dpr };
+  }
+
+  function drawHeart(g, x, y, s, alpha=1){
+    g.save();
+    g.translate(x,y);
+    g.scale(s,s);
+    g.globalAlpha = alpha;
+
+    g.beginPath();
+    g.moveTo(0, -0.2);
+    g.bezierCurveTo(0.6, -0.85, 1.4, -0.05, 0, 1.15);
+    g.bezierCurveTo(-1.4, -0.05, -0.6, -0.85, 0, -0.2);
+    g.closePath();
+
+    g.fillStyle = "#ff2b6b";
+    g.shadowColor = "rgba(255,40,120,.45)";
+    g.shadowBlur = 10;
+    g.fill();
+
+    g.shadowBlur = 0;
+    g.fillStyle = "rgba(255,255,255,.10)";
+    g.beginPath();
+    g.ellipse(-0.22, -0.10, 0.18, 0.14, 0, 0, Math.PI*2);
+    g.fill();
+
+    g.restore();
+  }
+
+  function spawnHeart(){
+    const {x,y,w,h} = logoRectCanvas();
+    const cx = x + w/2, cy = y + h/2;
+    const r = Math.max(w,h) * 0.22;
+    const a = Math.random()*Math.PI*2;
+
+    const sx = cx + Math.cos(a)*r;
+    const sy = cy + Math.sin(a)*r;
+
+    const size = (isMobile() ? 10 : 12) * dpr;
+
+    hearts.push({
+      x: sx, y: sy,
+      vx: (Math.random()*0.8-0.4) * dpr,
+      vy: (isMobile()? 1.25 : 1.05) * dpr,
+      s: size,
+      a: 0.55 + Math.random()*0.35,
+      wob: Math.random()*Math.PI*2,
+    });
+    if(hearts.length>140) hearts.shift();
+  }
+
+  function spawnDust(n=1){
+    for(let i=0;i<n;i++){
+      dust.push({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        r: (Math.random()*1.6 + 0.6) * dpr,
+        a: Math.random()*Math.PI*2,
+        tw: 0.02 + Math.random()*0.03,
+        alpha: 0.12 + Math.random()*0.26,
+      });
+    }
+    if(dust.length>220) dust.splice(0, dust.length-220);
+  }
+
+  function drawBackground(){
+    ctx.clearRect(0,0,W,H);
+    const g = ctx.createRadialGradient(center.x, center.y, center.r*0.22, center.x, center.y, center.r);
+    g.addColorStop(0, "rgba(120,0,40,0.35)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, center.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawDust(){
+    if(Math.random() < 0.45) spawnDust(isMobile()? 1 : 2);
+
+    for(const p of dust){
+      p.a += p.tw;
+      const flick = (Math.sin(p.a) * 0.5 + 0.5);
+      const alpha = p.alpha * (0.55 + 0.9*flick);
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255,255,255,1)";
+      ctx.shadowColor = "rgba(255,255,255,.22)";
+      ctx.shadowBlur = 7 * dpr;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawHearts(){
+    if(started && Math.random() < (isMobile()? 0.55 : 0.42)) spawnHeart();
+
+    for(const p of hearts){
+      p.y -= p.vy;
+      p.x += p.vx + Math.sin(p.wob += 0.03) * 0.40 * dpr;
+      drawHeart(ctx, p.x, p.y, (p.s/dpr), p.a);
+    }
+    for(let i=hearts.length-1;i>=0;i--){
+      if(hearts[i].y < -120*dpr || hearts[i].x < -120*dpr || hearts[i].x > W+120*dpr){
+        hearts.splice(i,1);
+      }
+    }
+  }
+
+  function shuffleInPlace(arr){
+    for(let i=arr.length-1;i>0;i--){
+      const j = (Math.random()*(i+1))|0;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function hasNeighbor(img, w, x, y, thr){
+    for(let yy=y-1; yy<=y+1; yy++){
+      for(let xx=x-1; xx<=x+1; xx++){
+        if(xx<0||yy<0||xx>=w) continue;
+        const idx = (yy*w + xx) * 4 + 3;
+        if(img[idx] > thr) return true;
+      }
+    }
+    return false;
+  }
+
+  function buildTargetsForLines(lines){
+    const off = document.createElement("canvas");
+    const octx = off.getContext("2d", { willReadFrequently: true });
+
+    const fontPx = (isMobile() ? 34 : 46) * dpr;
+    const lineH = Math.floor(fontPx * 1.15);
+    const lineCount = lines.length;
+
+    off.width  = W;
+    off.height = Math.floor(lineH * (lineCount + 0.6));
+
+    octx.clearRect(0,0,off.width,off.height);
+    octx.font = `900 ${fontPx}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+    octx.textAlign = "center";
+    octx.textBaseline = "middle";
+    octx.lineJoin = "round";
+    octx.lineCap  = "round";
+
+    const cx = off.width/2;
+    const mid = off.height/2;
+
+    const startY = mid - (lineH * (lineCount-1) * 0.55);
+    for(let i=0;i<lineCount;i++){
+      const yy = startY + i*lineH*1.10;
+      octx.lineWidth = Math.max(2*dpr, 2);
+      octx.strokeStyle = "rgba(255,255,255,1)";
+      octx.strokeText(lines[i], cx, yy);
+    }
+
+    const img = octx.getImageData(0,0,off.width,off.height).data;
+    const step = (stage === 2) ? 1 : 2;
+
+    const ALPHA_MAIN = 250;
+    const ALPHA_FILL = 255;
+
+    const lr = logo.getBoundingClientRect();
+    const logoBottomCanvas = (lr.bottom * dpr);
+
+    const gap = (isMobile()? 140 : 170) * dpr;
+    const minGapFromLogo = (isMobile()? 115 : 140) * dpr;
+    const targetYBase = logoBottomCanvas + Math.max(gap, minGapFromLogo);
+
+    const ptsMain = [];
+    const ptsFill = [];
+
+    for(let y=0; y<off.height; y+=step){
+      for(let x=0; x<off.width; x+=step){
+        const a = img[(y*off.width + x) * 4 + 3];
+        if(a > ALPHA_MAIN){
+          ptsMain.push({ x, y: (y - off.height/2) + targetYBase });
+        } else if(a > ALPHA_FILL){
+          if(hasNeighbor(img, off.width, x, y, ALPHA_MAIN)){
+            ptsFill.push({ x, y: (y - off.height/2) + targetYBase });
+          }
+        }
+      }
+    }
+
+    let pts = ptsMain.concat(ptsFill);
+
+    // ✅ Stage2'de daha dolgun, Stage1 sabit
+    const isStage2 = (stage === 2);
+const maxPts = isMobile()
+  ? (isStage2 ? 2600 : 2200)
+  : (isStage2 ? 3800 : 3200);
+
+    if(pts.length > maxPts){
+      shuffleInPlace(pts);
+      pts = pts.slice(0, maxPts);
+    }
+
+    return pts;
+  }
+
+  function buildTextTargets(lines, morph=false){
+    textSettled = false;
+
+    const pts = buildTargetsForLines(lines);
+    textTargets = pts;
+
+    if(!morph || !textParticles.length){
+      // ✅ temiz kurulum (Stage1 için)
+      textParticles = textTargets.map(t => ({
+        x: Math.random()*W,
+        y: H + Math.random()*H*0.35,
+        vx: 0, vy: 0,
+        tx: t.x, ty: t.y,
+        r: (Math.random()*0.22 + 0.32) * dpr,
+        seed: Math.random()*1000
+      }));
+      textBuilt = true;
+      return;
+    }
+
+    // ✅ MORPH: dağıtma yok, sadece tx/ty değişsin
+    const shuffled = pts.slice();
+    shuffleInPlace(shuffled);
+
+    const n = Math.min(textParticles.length, shuffled.length);
+
+    for(let i=0;i<n;i++){
+      textParticles[i].tx = shuffled[i].x;
+      textParticles[i].ty = shuffled[i].y;
+    }
+
+    if(shuffled.length < textParticles.length){
+      for(let i=shuffled.length;i<textParticles.length;i++){
+        const t = shuffled[i % shuffled.length];
+        textParticles[i].tx = t.x;
+        textParticles[i].ty = t.y;
+      }
+    }
+
+    if(shuffled.length > textParticles.length){
+      for(let i=textParticles.length;i<shuffled.length;i++){
+        const pick = textParticles[i % textParticles.length];
+        const t = shuffled[i];
+        textParticles.push({
+          x: pick.x, y: pick.y,
+          vx: 0, vy: 0,
+          tx: t.x, ty: t.y,
+          r: (Math.random()*0.22 + 0.32) * dpr,
+          seed: Math.random()*1000
+        });
+      }
+    }
+
+    // ✅ Stage1’e dönülürse (resize vs.) fazla partikülü kes (bozulmayı bitirir)
+    if(stage === 1 && textParticles.length > textTargets.length){
+      textParticles.length = textTargets.length;
+    }
+
+    textBuilt = true;
+  }
+
+  function drawTextParticles(now){
+    if(!started || !textBuilt || !textParticles.length) return;
+
+    const k = 0.034;
+    const damp = 0.82;
+
+    let near = 0;
+    const eps = 0.9*dpr;
+
+    for(const p of textParticles){
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+
+      p.vx = (p.vx + dx*k) * damp;
+      p.vy = (p.vy + dy*k) * damp;
+
+      p.x += p.vx;
+      p.y += p.vy;
+
+      if(Math.abs(dx) + Math.abs(dy) < eps){
+        near++;
+        p.x = p.tx; p.y = p.ty;
+        p.vx *= 0.25; p.vy *= 0.25;
+      }
+
+      const tw = 0.62 + 0.38*Math.sin(p.seed + now*0.0025);
+
+      ctx.save();
+      ctx.globalAlpha = (0.86 + 0.14*tw);
+      ctx.shadowColor = "rgba(255,255,255,.35)";
+      ctx.shadowBlur  = 9 * dpr;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255,255,255,1)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if(!textSettled && near > textParticles.length * 0.92){
+      textSettled = true;
+      settledAt = now;
+    }
+
+    if(stage === 1 && textSettled && !morphed && (now - settledAt) > MORPH_DELAY_MS){
+      stage = 2;
+      morphed = true;
+      buildTextTargets(TEXT2, true);
+    }
+  }
+
+  function loop(now){
+    now = now || performance.now();
+    drawBackground();
+    drawDust();
+    drawHearts();
+    drawTextParticles(now);
+    requestAnimationFrame(loop);
+  }
+
+  async function begin(){
+    if(started) return;
+    try { await audio.play(); } catch(e) { return; }
+
+    started = true;
+    start.style.display = "none";
+    logo.classList.add("pulse");
+
+    stage = 1;
+    morphed = false;
+    buildTextTargets(TEXT1, false);
+  }
+
+  startBtn.addEventListener("click", begin);
+  start.addEventListener("click", (e)=>{ if(e.target===start) begin(); });
+
+  addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
